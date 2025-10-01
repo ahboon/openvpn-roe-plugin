@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+
+    <!-- Loading message shown first -->
+    <div id="loading-section" class="text-muted">
+        Loading ROE status…
+    </div>
+
+    <!-- ROE section (hidden by default) -->
+    <div id="roe-section" style="display:none;">
+        <h2>Rules of Engagement</h2>
+        <p>please dont hack me </p>
+        <button id="agree-btn" class="btn btn-primary me-2">I Agree</button>
+    </div>
+
+    <!-- Profile section (hidden by default) -->
+    <div id="profile-section" style="display:none;">
+        <h2>Your VPN Profile</h2>
+        <p>You have already agreed to the ROEs. You can download or delete your profile below.</p>
+        <button id="download-btn" class="btn btn-success me-2">Download File</button>
+        <button id="delete-btn" class="btn btn-danger">Delete Profile</button>
+    </div>
+
+    <div id="result" class="mt-3 text-muted"></div>
+</div>
+
+<script>
+    function setStatus(msg, type = "info") {
+        const el = document.getElementById("result");
+        el.innerText = msg;
+        el.className = type === "error" ? "text-danger mt-3" : "text-success mt-3";
+    }
+
+    function showSection(section) {
+        document.getElementById("loading-section").style.display = "none";
+        document.getElementById("roe-section").style.display = (section === "roe") ? "block" : "none";
+        document.getElementById("profile-section").style.display = (section === "profile") ? "block" : "none";
+    }
+
+    function downloadOvpnFile(base64Data, filename = "profile.ovpn") {
+        try {
+            setStatus("Download starting…");
+            const decoded = atob(base64Data);
+            const blob = new Blob([decoded], { type: "application/x-openvpn-profile" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            setStatus("Download finished.");
+        } catch (err) {
+            console.error(err);
+            setStatus("Error decoding or downloading the file.", "error");
+        }
+    }
+
+    async function checkCurrentProfile() {
+        try {
+            const res = await fetch("/api/openvpn/current", { headers: { "Accept": "application/json" } });
+            const data = await res.json();
+            if (data.status === "ok" && data.ovpn_base64) {
+                window.currentProfile = data.ovpn_base64;
+                showSection("profile");
+            } else {
+                showSection("roe");
+            }
+        } catch (err) {
+            setStatus("Error checking current profile.", "error");
+            showSection("roe");
+        }
+    }
+
+    async function agreeHandler() {
+        setStatus("Requesting VPN profile…");
+        try {
+            const res = await fetch("/api/openvpn/create", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "CSRF-Token": (window.init && window.init.csrfNonce) || window.csrfNonce
+                }
+            });
+            const data = await res.json();
+            if (data.status === "ok" && data.ovpn_base64) {
+                setStatus("Profile created. Preparing download…");
+                window.currentProfile = data.ovpn_base64;
+                showSection("profile");
+                downloadOvpnFile(data.ovpn_base64, "profile.ovpn");
+            } else {
+                setStatus(`Error: ${data.error || "No profile returned"}`, "error");
+            }
+        } catch (err) {
+            setStatus(`Network error: ${err}`, "error");
+        }
+    }
+
+    async function deleteHandler() {
+        setStatus("Deleting profile…");
+        try {
+            const res = await fetch("/api/openvpn/delete", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "CSRF-Token": (window.init && window.init.csrfNonce) || window.csrfNonce
+                }
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setStatus(data.message || "Profile deleted.");
+                window.currentProfile = null;
+                showSection("roe");
+            } else {
+                setStatus(data.error || "Delete failed.", "error");
+            }
+        } catch (err) {
+            setStatus(`Network error: ${err}`, "error");
+        }
+    }
+
+    // Event bindings
+    document.getElementById("agree-btn").addEventListener("click", agreeHandler);
+    document.getElementById("download-btn").addEventListener("click", () => {
+        if (window.currentProfile) downloadOvpnFile(window.currentProfile);
+    });
+    document.getElementById("delete-btn").addEventListener("click", deleteHandler);
+
+    // Show loading message while checking
+    showSection("loading");
+    checkCurrentProfile();
+</script>
+{% endblock %}
