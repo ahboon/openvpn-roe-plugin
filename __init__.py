@@ -6,7 +6,8 @@ import requests
 
 from .models import OpenVPNProfile
 
-TAILSCALE_IP = "nullsecazure"
+BACKEND_URL = "ip_address:5000"
+PRE_SHARED_KEY = "REPLACE_WITH_SHARED_KEY"
 def load(app):
     app.db.create_all()
 
@@ -27,7 +28,12 @@ def load(app):
             return jsonify({"status": "ok", "message": "Returning stored profile", "ovpn_base64": existing.ovpn_base64})
 
         # create via backend
-        r = requests.get(f"http://{TAILSCALE_IP}:5000/create", params={"client": user.id}, timeout=10)
+        r = requests.get(
+            f"http://{BACKEND_URL}/create",
+            params={"client": user.id},
+            headers={"X-Pre-Shared-Key": PRE_SHARED_KEY},
+            timeout=10,
+        )
         if r.status_code != 200:
             return jsonify({"status": "error", "error": r.text}), r.status_code
 
@@ -48,7 +54,12 @@ def load(app):
         user = get_current_user()
 
         # call backend revoke
-        r = requests.post(f"http://{TAILSCALE_IP}:5000/delete", json={"client": str(user.id)}, timeout=10)
+        r = requests.post(
+            f"http://{BACKEND_URL}/delete",
+            json={"client": str(user.id)},
+            headers={"X-Pre-Shared-Key": PRE_SHARED_KEY},
+            timeout=10,
+        )
 
         if r.status_code != 200:
             return jsonify({"error": r.json().get("error", "Unknown error")}), r.status_code
